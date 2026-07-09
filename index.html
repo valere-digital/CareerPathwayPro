@@ -18,6 +18,8 @@
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+  @keyframes toastIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
   .fade{animation:fadeUp .32s ease both}
   input,textarea,button{font-family:inherit}
 </style>
@@ -32,7 +34,7 @@
       <div style="display:flex;gap:14px;color:#8a96a5"><i data-lucide="chevron-left" width="19" height="19" style="color:#b6c0cc"></i><i data-lucide="chevron-right" width="19" height="19" style="color:#b6c0cc"></i></div>
       <div style="flex:1;height:34px;background:#fff;border-radius:11px;display:flex;align-items:center;gap:7px;padding:0 12px;box-shadow:inset 0 0 0 1px #e2e7ee">
         <i data-lucide="lock" width="13" height="13" style="color:#2ea86a"></i>
-        <span style="font-size:13px;color:#3d4a5c;font-weight:500">careerpathwaypro.org</span>
+        <span style="font-size:13px;color:#3d4a5c;font-weight:500">cpptn.org</span>
         <i data-lucide="rotate-cw" width="14" height="14" style="color:#8a96a5;margin-left:auto"></i>
       </div>
       <i data-lucide="ellipsis-vertical" width="19" height="19" style="color:#8a96a5"></i>
@@ -52,6 +54,7 @@
   <div id="cpp-fab"></div>
   <div id="cpp-chat"></div>
   <div id="cpp-modal"></div>
+  <div id="cpp-toast"></div>
 
 </div>
 </div>
@@ -68,6 +71,7 @@ var state = {
   screen: 'splash',
   lang: 'en',
   authMode: 'signup',
+  verifyMethod: 'email',
   consented: false,
   intakeStep: 0,
   intakeLog: [],
@@ -85,7 +89,10 @@ var state = {
   notifPrefs: { inApp:true, email:true, sms:false },
   notifFreq: 'Daily',
   interests: ['Healthcare','Helping people'],
-  profileSaved: false, goalsSaved: false, pwSaved: false
+  profileSaved: false, goalsSaved: false, pwSaved: false,
+  customGoals: [], toast: null,
+  resumeExportView: 'main', resumeFormat: 'PDF', resumeShareCopied: false,
+  interviewStep: 0, interviewRole: 'Medical Assistant', interviewRecording: false, interviewAnswered: false, interviewRecordings: [], interviewFrom: 'resume', reviewRecId: null
 };
 
 // =================== DATA ===================
@@ -128,6 +135,17 @@ var resumeSteps = [
   {prompt:"Almost done! Any certifications or education to add?", answer:'CPR certified · Cookeville HS diploma'}
 ];
 
+var interviewQuestions = [
+  {q:"Tell me about yourself and why you're interested in this role.", tip:'Keep it to ~60 seconds — background, strengths, why this role.'},
+  {q:"Describe a time you gave great care or customer service under pressure.", tip:'Use a real example: situation, what you did, the result.'},
+  {q:"How do you stay organized in a fast-paced clinic?", tip:'Name a concrete system or habit you use.'},
+  {q:"Where do you see your career growing over the next few years?", tip:'Show ambition that fits the role and employer.'}
+];
+var interviewFeedback = {
+  strengths:['Warm, genuine tone — you sound easy to work with','Gave a specific caregiving example','Clear on why healthcare fits you'],
+  tips:['Trim your intro to ~60 seconds','Add one measurable result (e.g. "supported 8 patients/day")','Slow down slightly on the closing question']
+};
+
 // =================== HELPERS ===================
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function setState(patch){ for(var k in patch) state[k]=patch[k]; render(); }
@@ -138,8 +156,12 @@ var APP = window.APP = {};
 APP.go = function(s){ setState({ screen:s, chatOpen:false }); };
 APP.goLanguage = function(){ APP.go('language'); };
 APP.goAuth = function(){ APP.go('auth'); };
+APP.goVerifyChoose = function(){ APP.go('verifyChoose'); };
 APP.goVerify = function(){ APP.go('verify'); };
 APP.goConsent = function(){ APP.go('consent'); };
+APP.submitAuth = function(){ if(state.authMode==='signup'){ APP.go('verifyChoose'); } else { APP.goVerify(); } };
+APP.setVerifyMethod = function(e,el){ setState({ verifyMethod: el.dataset.val }); };
+APP.swapVerifyMethod = function(){ setState({ verifyMethod: state.verifyMethod==='email' ? 'sms' : 'email' }); };
 APP.goPrograms = function(){ APP.go('programs'); };
 APP.goResume = function(){ APP.go('resume'); };
 APP.goRoadmap = function(){ APP.go('roadmap'); };
@@ -147,6 +169,31 @@ APP.goProfile = function(){ APP.go('profile'); };
 APP.goNotifications = function(){ APP.go('notifications'); };
 APP.goSummary = function(){ APP.go('summary'); };
 APP.goBadges = function(){ APP.go('badges'); };
+APP.goEditRoadmap = function(){ APP.go('editRoadmap'); };
+APP.goAddGoal = function(){ setState({ screen:'addGoal', goalDraft:'' }); };
+APP.setGoalPreset = function(e,el){ var v=el.dataset.val; var inp=document.getElementById('goalInput'); if(inp) inp.value=v; setState({ goalDraft:v }); };
+APP.addCustomGoal = function(){
+  var el=document.getElementById('goalInput');
+  var v=(el&&el.value.trim());
+  if(!v) return;
+  var dEl=document.getElementById('goalDateInput');
+  var when=(dEl&&dEl.value.trim())||'';
+  var goal={ label:v, when:when, done:false };
+  setState({ customGoals: state.customGoals.concat([goal]), goalDraft:'', screen:'roadmap', toast:{ title:'Goal added', msg:'“'+v+'” added to your roadmap', icon:'check', color:'#2ea86a' } });
+  showToast();
+};
+APP.removeCustomGoal = function(e,el){ if(e) e.stopPropagation(); var i=parseInt(el.dataset.i,10); setState({ customGoals: state.customGoals.filter(function(_,idx){return idx!==i;}) }); };
+APP.toggleCustomGoal = function(e,el){
+  if(e) e.stopPropagation();
+  var i=parseInt(el.dataset.i,10);
+  var cg=state.customGoals.map(function(g,idx){ return idx!==i ? g : { label:g.label, when:g.when, done:!g.done }; });
+  var nowDone = cg[i] && cg[i].done;
+  setState({ customGoals:cg, toast: nowDone ? { title:'Goal completed', msg:'“'+cg[i].label+'” marked complete 🎉', icon:'party-popper', color:'#2ea86a' } : null });
+  if(nowDone) showToast();
+};
+var _toastTimer=null;
+function showToast(){ if(_toastTimer) clearTimeout(_toastTimer); _toastTimer=setTimeout(function(){ setState({ toast:null }); }, 3200); }
+APP.dismissToast = function(){ if(_toastTimer) clearTimeout(_toastTimer); setState({ toast:null }); };
 APP.backToPathways = function(){ APP.go('pathways'); };
 APP.backToPrograms = function(){ APP.go('programs'); };
 APP.openLangSheet = function(){ APP.go('language'); };
@@ -213,6 +260,89 @@ APP.setSignup = function(){ setState({ authMode:'signup' }); };
 APP.setLogin = function(){ setState({ authMode:'login' }); };
 APP.markAllRead = function(){ setState({ notifRead:true }); };
 APP.resumeNext = function(){ setState({ resumeStep: Math.min(state.resumeStep+1, 3) }); };
+
+// resume export (download / share)
+function resumeDocHtml(){
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Alex Morgan — Resume</title>'
+    + '<style>body{font-family:Georgia,\'Times New Roman\',serif;color:#172230;max-width:720px;margin:40px auto;padding:0 32px;line-height:1.5}'
+    + 'h1{font-size:26px;margin:0}.contact{color:#65758B;font-size:13px;margin:4px 0 18px}'
+    + 'h2{font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:#294A95;border-bottom:1px solid #d8e0ea;padding-bottom:3px;margin:18px 0 8px}'
+    + '.job-title{font-weight:bold;font-size:14px}.job-meta{color:#65758B;font-size:12.5px;margin-bottom:4px}'
+    + 'ul{margin:4px 0 0;padding-left:18px}li{margin-bottom:3px;font-size:13px}p{font-size:13px;margin:4px 0}</style></head><body>'
+    + '<h1>Alex Morgan</h1><div class="contact">Cookeville, TN &middot; alex.morgan@email.com &middot; (931) 555-4821</div>'
+    + '<h2>Summary</h2><p>Reliable caregiver transitioning to a Medical Assistant role, with strong patient communication and scheduling experience.</p>'
+    + '<h2>Experience</h2>'
+    + '<div class="job-title">Home Caregiver</div><div class="job-meta">Private Family &middot; Cookeville, TN &middot; 2021–Present</div>'
+    + '<ul><li>Provided daily support for two clients — mobility, meals, and medication reminders.</li><li>Coordinated appointments and managed the household schedule.</li><li>Communicated care updates with family and healthcare providers.</li></ul>'
+    + '<div class="job-title" style="margin-top:10px">Retail Associate</div><div class="job-meta">Cookeville, TN &middot; 2019–2021</div>'
+    + '<ul><li>Delivered friendly customer service and handled point-of-sale transactions.</li><li>Trained two new team members on store procedures.</li></ul>'
+    + '<h2>Skills</h2><p>Patient communication &middot; Scheduling &middot; Empathy &amp; care &middot; Basic vitals &middot; EHR software (learning)</p>'
+    + '<h2>Education</h2><p>Cookeville High School — Diploma, 2019</p>'
+    + '<h2>Certifications</h2><p>CPR &amp; First Aid Certified (2024) &middot; Pursuing CCMA (Certified Clinical Medical Assistant)</p>'
+    + '</body></html>';
+}
+APP.openResumeExport = function(){ setState({ modal:'resumeExport', resumeExportView:'main', resumeShareCopied:false }); };
+APP.setResumeFormat = function(e,el){ setState({ resumeFormat: el.dataset.val }); };
+APP.downloadResume = function(){
+  var fmt = state.resumeFormat || 'PDF';
+  var html = resumeDocHtml();
+  if(fmt==='PDF'){
+    var w = window.open('', '_blank');
+    if(w){ w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{ w.print(); }catch(e){} }, 400); }
+  } else {
+    var blob = new Blob(['﻿'+html], { type:'application/msword' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'Alex_Morgan_Resume.doc';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+  setState({ modal:null, toast:{ title:'Saved & downloaded', msg:'Alex_Morgan_Resume.'+(fmt==='PDF'?'pdf':'doc')+' saved to your device', icon:'check', color:'#2ea86a' } });
+  showToast();
+};
+APP.goShareResume = function(){ setState({ resumeExportView:'share', resumeShareCopied:false }); };
+APP.backResumeExport = function(){ setState({ resumeExportView:'main' }); };
+APP.copyResumeLink = function(){
+  var link = 'https://cpptn.org/r/alex-morgan-9f2a';
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(link); }
+    else { var t=document.createElement('textarea'); t.value=link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
+  } catch(e){}
+  setState({ resumeShareCopied:true });
+};
+APP.shareResumeNative = function(){
+  var link = 'https://cpptn.org/r/alex-morgan-9f2a';
+  if(navigator.share){ try{ navigator.share({ title:'Alex Morgan — Resume', text:'Here is my resume', url:link }); }catch(e){} }
+  else { APP.copyResumeLink(); }
+};
+APP.shareResumeEmail = function(){
+  var link = 'https://cpptn.org/r/alex-morgan-9f2a';
+  window.location.href = 'mailto:?subject=' + encodeURIComponent('Alex Morgan — Resume') + '&body=' + encodeURIComponent('Here is my resume:\n' + link);
+};
+
+// interview prep
+APP.goInterviewPrep = function(){ setState({ interviewFrom: state.screen, screen:'interviewPrep' }); };
+APP.goInterviewRole = function(){ APP.go('interviewRole'); };
+APP.setInterviewRole = function(e,el){ setState({ interviewRole: el.dataset.val }); };
+APP.startMockInterview = function(){ setState({ screen:'mockInterview', interviewStep:0, interviewRecording:false, interviewAnswered:false }); };
+APP.toggleRecord = function(){
+  if(state.interviewRecording){ setState({ interviewRecording:false, interviewAnswered:true }); }
+  else { setState({ interviewRecording:true }); }
+};
+APP.interviewNext = function(){
+  var n = state.interviewStep + 1;
+  if(n < interviewQuestions.length){ setState({ interviewStep:n, interviewRecording:false, interviewAnswered:false }); }
+  else {
+    var num = state.interviewRecordings.length + 1;
+    var rec = { id:'rec'+num, title:'Mock Interview #'+num, role:state.interviewRole, when:'Just now', duration:'4:12', scorePending:true };
+    setState({ interviewRecordings: state.interviewRecordings.concat([rec]), interviewRecording:false, screen:'interviewComplete', reviewRecId:rec.id,
+      toast:{ title:'Saved to your profile', msg:'Your mock interview recording was saved', icon:'check', color:'#2ea86a' } });
+    showToast();
+  }
+};
+APP.reviewRecording = function(e,el){ setState({ reviewRecId: el.dataset.id, screen:'interviewReview' }); };
+APP.backToInterviewPrep = function(){ APP.go('interviewPrep'); };
+APP.backFromInterviewPrep = function(){ APP.go(state.interviewFrom || 'resume'); };
 APP.signOut = function(){ setState({ screen:'splash', chatOpen:false }); };
 
 // funding + profile subscreens
@@ -235,7 +365,7 @@ APP.requestDeletion = function(){ setState({ modal:'deletion' }); };
 // =================== COMPUTED ===================
 function computed(){
   var st=state, screen=st.screen;
-  var onboarding = ['splash','language','auth','verify','consent','intake','generating'];
+  var onboarding = ['splash','language','auth','verifyChoose','verify','consent','intake','generating'];
   var showChrome = onboarding.indexOf(screen)===-1;
 
   // intake
@@ -257,18 +387,24 @@ function computed(){
   // milestones
   var mdefs=[
     {label:'Intake Completed', done:true},{label:'Pathway Selected', done:true},{label:'Program Saved', done:true},
-    {label:'Resume Built', done:false, current:true},{label:'Mock Interview', done:false},{label:'Connected to AJC', done:false}
+    {label:'Resume Built', done:false, current:true},{label:'Mock Interview', done:false, action:'goInterviewPrep', actionLabel:'Practice', icon:'mic'},{label:'Connected to AJC', done:false}
   ];
-  var milestones = mdefs.map(function(m,i){ return {
-    label:m.label, showLine: i<mdefs.length-1,
-    circleBg: m.done?'#2ea86a':(m.current?'#fff6ec':'#f3f6fa'),
-    circleBorder: m.done?'#2ea86a':(m.current?'#f5a623':'#e3e9f0'),
-    markIcon: m.done?'check':(m.current?'circle-dot':'circle'),
-    markColor: m.done?'#fff':(m.current?'#f5a623':'#c8d2dc'),
+  // custom goals added by the user become milestone entries too
+  var customEntries = st.customGoals.map(function(g,gi){ return {
+    label:g.label, when:g.when, custom:true, done:!!g.done, current:false, goalIndex:gi
+  }; });
+  var allMs = mdefs.concat(customEntries);
+  var milestones = allMs.map(function(m,i){ return {
+    label:m.label, showLine: i<allMs.length-1, custom:!!m.custom, done:!!m.done, goalIndex: (m.custom? m.goalIndex : -1), sub: m.when||'',
+    action: m.action||'', actionLabel: m.actionLabel||'',
+    circleBg: m.done?'#2ea86a':(m.current?'#fff6ec':(m.custom?'#eef3fb':'#f3f6fa')),
+    circleBorder: m.done?'#2ea86a':(m.current?'#f5a623':(m.custom?'#294A95':'#e3e9f0')),
+    markIcon: m.done?'check':(m.current?'circle-dot':(m.custom?'flag':(m.icon||'circle'))),
+    markColor: m.done?'#fff':(m.current?'#f5a623':(m.custom?'#294A95':(m.action?'#294A95':'#c8d2dc'))),
     lineColor: m.done?'#2ea86a':'#e3e9f0',
-    textColor: m.done?'#172230':(m.current?'#172230':'#9aa7b6'),
-    status: m.done?'Done':(m.current?'Up next':'Locked'),
-    statusColor: m.done?'#2ea86a':(m.current?'#f5a623':'#c8d2dc')
+    textColor: m.done?'#172230':(m.current?'#172230':(m.custom?'#172230':(m.action?'#172230':'#9aa7b6'))),
+    status: m.done?'Done':(m.current?'Up next':(m.custom?'Your goal':'Locked')),
+    statusColor: m.done?'#2ea86a':(m.current?'#f5a623':(m.custom?'#294A95':'#c8d2dc'))
   }; });
   var done=mdefs.filter(function(m){return m.done;}).length; var pct=Math.round(done/mdefs.length*100);
 
@@ -372,6 +508,16 @@ function computed(){
     resumePrompt: rs.prompt, resumeAnswer: rs.answer, resumeHasAnswer: st.resumeStep>0,
     barrierServices:barrierServices, ajcServices:ajcServices,
     roadmapPct:pct, roadmapDeg: Math.round(pct/100*360), milestones:milestones, badgesPreview:badgesPreview, allBadges:allBadges,
+    customGoals:st.customGoals, customGoalCount:st.customGoals.length, toast:st.toast, goalDraft:st.goalDraft||'',
+    // interview prep
+    interviewStep:st.interviewStep, interviewStepNum:st.interviewStep+1, interviewTotal:interviewQuestions.length,
+    interviewPct: Math.round(((st.interviewStep+1)/interviewQuestions.length)*100),
+    interviewQ: (interviewQuestions[st.interviewStep]||interviewQuestions[0]).q,
+    interviewTip: (interviewQuestions[st.interviewStep]||interviewQuestions[0]).tip,
+    interviewIsLast: st.interviewStep===interviewQuestions.length-1,
+    interviewRecording:st.interviewRecording, interviewAnswered:st.interviewAnswered, interviewRole:st.interviewRole,
+    interviewRecordings:st.interviewRecordings, interviewHasRecordings: st.interviewRecordings.length>0,
+    reviewRec: st.interviewRecordings.filter(function(r){return r.id===st.reviewRecId;})[0] || st.interviewRecordings[st.interviewRecordings.length-1] || null,
     savedProgramsList:savedProgramsList,
     notifications:notifications,
     profileAccount:[
@@ -391,6 +537,7 @@ function computed(){
     chatMessages:st.chatMessages, chatOpen:st.chatOpen,
     chatSuggestions:['Is this career in demand near me?','What training do I need?','Help with funding'],
     modal:modal, modalOpen: !!modal, modalTitle:modalTitle, modalBody:modalBody,
+    resumeExportView: st.resumeExportView, resumeFormat: st.resumeFormat, resumeShareCopied: st.resumeShareCopied,
     navItems:navItems,
     // auth
     authSignup: st.authMode==='signup', authLogin: st.authMode==='login',
@@ -399,6 +546,10 @@ function computed(){
     authCta: st.authMode==='signup'?'Create account':'Log in',
     signupBg: st.authMode==='signup'?'#fff':'transparent', signupColor: st.authMode==='signup'?'#294A95':'#65758B',
     loginBg: st.authMode==='login'?'#fff':'transparent', loginColor: st.authMode==='login'?'#294A95':'#65758B',
+    // verify method
+    verifyMethod: st.verifyMethod, verifyIsEmail: st.verifyMethod==='email', verifyIsSms: st.verifyMethod==='sms',
+    signupEmail:'alex.morgan@email.com', signupPhone:'(931) 555-4821',
+    verifyTarget: st.verifyMethod==='email' ? 'alex.morgan@email.com' : '(931) 555-4821',
     // consent
     consented:st.consented,
     consentBorder: st.consented?'#2ea86a':'#c8d2dc', consentBg: st.consented?'#2ea86a':'#fff',
@@ -454,12 +605,31 @@ S.auth = function(V){ return '\
       <button onclick="APP.setLogin()" style="flex:1;padding:11px;border:none;border-radius:9px;font-weight:700;font-size:14px;cursor:pointer;background:'+V.loginBg+';color:'+V.loginColor+'">Log in</button>\
     </div>\
     <h1 style="font-family:\'Sora\',sans-serif;font-size:25px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">'+V.authTitle+'</h1>\
-    <p style="color:#65758B;font-size:14px;margin:0 0 24px">'+V.authSub+'</p>\
+    <p style="color:#65758B;font-size:14px;margin:0 0 22px">'+V.authSub+'</p>\
+    '+(V.authSignup?'\
+    <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Full name</label>\
+    <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:0 14px;margin:7px 0 14px;background:#fff">\
+      <i data-lucide="user" width="18" height="18" style="color:#65758B"></i>\
+      <input value="Alex Morgan" style="flex:1;border:none;outline:none;padding:14px 0;font-size:15px;background:none">\
+    </div>\
+    <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Email</label>\
+    <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:0 14px;margin:7px 0 14px;background:#fff">\
+      <i data-lucide="mail" width="18" height="18" style="color:#65758B"></i>\
+      <input value="alex.morgan@email.com" inputmode="email" style="flex:1;border:none;outline:none;padding:14px 0;font-size:15px;background:none">\
+    </div>\
+    <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Phone <span style="text-transform:none;font-weight:500;color:#9aa7b6">— for text verification</span></label>\
+    <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:0 14px;margin:7px 0 14px;background:#fff">\
+      <i data-lucide="phone" width="18" height="18" style="color:#65758B"></i>\
+      <input value="(931) 555-4821" inputmode="tel" style="flex:1;border:none;outline:none;padding:14px 0;font-size:15px;background:none">\
+    </div>\
+    <div style="font-size:11.5px;color:#8a97a6;margin:-4px 0 14px;display:flex;gap:6px;align-items:flex-start;line-height:1.45"><i data-lucide="info" width="13" height="13" style="color:#8a97a6;flex:none;margin-top:1px"></i>Add at least one — you\'ll verify with whichever you prefer. No email? Just use your phone.</div>\
+    ':'\
     <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Email or phone</label>\
     <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:0 14px;margin:7px 0 16px;background:#fff">\
       <i data-lucide="mail" width="18" height="18" style="color:#65758B"></i>\
       <input value="alex.morgan@email.com" style="flex:1;border:none;outline:none;padding:15px 0;font-size:15px;background:none">\
     </div>\
+    ')+'\
     <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Password</label>\
     <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:0 14px;margin:7px 0 8px;background:#fff">\
       <i data-lucide="lock" width="18" height="18" style="color:#65758B"></i>\
@@ -467,20 +637,46 @@ S.auth = function(V){ return '\
       <i data-lucide="eye" width="18" height="18" style="color:#65758B"></i>\
     </div>\
     '+(V.authSignup?'<div style="font-size:12px;color:#65758B;margin-bottom:14px;display:flex;gap:6px;align-items:center"><i data-lucide="info" width="13" height="13" style="color:#65758B"></i> 12+ characters, 1 uppercase, 1 number, 1 symbol</div>':'')+'\
-    <button onclick="APP.goVerify()" style="width:100%;padding:17px;border:none;border-radius:15px;background:#C6202C;color:#fff;font-weight:700;font-size:16px;cursor:pointer;margin-top:6px">'+V.authCta+'</button>\
-    <p style="font-size:11.5px;color:#9aa7b6;text-align:center;margin-top:auto;line-height:1.5">We never collect SSN, medical, or financial records.</p>\
+    <button onclick="APP.submitAuth()" style="width:100%;padding:17px;border:none;border-radius:15px;background:#C6202C;color:#fff;font-weight:700;font-size:16px;cursor:pointer;margin-top:6px">'+V.authCta+'</button>\
+    <p style="font-size:11.5px;color:#9aa7b6;text-align:center;margin-top:18px;line-height:1.5">We never collect SSN, medical, or financial records.</p>\
+  </div>'; };
+
+S.verifyChoose = function(V){
+  function opt(method, icon, title, desc, target){
+    var on = V.verifyMethod===method;
+    return '<button onclick="APP.setVerifyMethod(event,this)" data-val="'+method+'" style="width:100%;text-align:left;padding:16px;border-radius:15px;border:2px solid '+(on?'#294A95':'#eef2f6')+';background:'+(on?'#eef3fb':'#fff')+';cursor:pointer;display:flex;align-items:center;gap:14px;margin-bottom:12px">'
+      + '<div style="width:44px;height:44px;border-radius:12px;background:'+(on?'#294A95':'#f3f6fa')+';display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="'+icon+'" width="22" height="22" style="color:'+(on?'#fff':'#65758B')+'"></i></div>'
+      + '<div style="flex:1"><div style="font-weight:700;font-size:15px">'+title+'</div><div style="font-size:12.5px;color:#65758B;margin-top:2px">'+desc+' <b style="color:#172230">'+target+'</b></div></div>'
+      + (on?'<i data-lucide="check-circle-2" width="22" height="22" style="color:#294A95"></i>':'')
+      + '</button>';
+  }
+  return '\
+  <div class="fade" style="padding:52px 24px 32px;min-height:100%;display:flex;flex-direction:column">\
+    <div style="width:56px;height:56px;border-radius:16px;background:#eef3fb;display:flex;align-items:center;justify-content:center;margin-bottom:20px"><i data-lucide="shield-check" width="28" height="28" style="color:#294A95"></i></div>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:25px;font-weight:700;margin:0 0 8px;letter-spacing:-.4px">How should we verify you?</h1>\
+    <p style="color:#65758B;font-size:15px;margin:0 0 26px;line-height:1.5">Pick where to get your 6-digit code. Prefer text? That works too — no email needed.</p>\
+    '+opt('email','mail','Email','Send a code to','alex.morgan@email.com')+'\
+    '+opt('sms','message-square','Text message (SMS)','Text a code to','(931) 555-4821')+'\
+    <button onclick="APP.goVerify()" style="margin-top:auto;width:100%;padding:17px;border:none;border-radius:15px;background:#C6202C;color:#fff;font-weight:700;font-size:16px;cursor:pointer">Send code</button>\
   </div>'; };
 
 S.verify = function(V){
   var codes=['4','9','2','7','1','5'];
   var inputs = codes.map(function(c){ return '<input value="'+c+'" maxlength="1" inputmode="numeric" style="flex:1;min-width:0;text-align:center;font-size:22px;font-weight:700;padding:16px 0;border:1.5px solid #294A95;border-radius:13px;outline:none;background:#eef3fb">'; }).join('');
+  var isEmail = V.verifyIsEmail;
+  var icon = isEmail ? 'mail-check' : 'message-square-lock';
+  var sub = isEmail
+    ? 'We emailed a 6-digit code to <b style="color:#172230">'+V.signupEmail+'</b>. Check your inbox and enter it below.'
+    : 'We texted a 6-digit code to <b style="color:#172230">'+V.signupPhone+'</b>. Enter it below.';
+  var swapLabel = isEmail ? 'Use text instead' : 'Use email instead';
   return '\
   <div class="fade" style="padding:52px 24px 32px;min-height:100%;display:flex;flex-direction:column">\
-    <div style="width:56px;height:56px;border-radius:16px;background:#eef3fb;display:flex;align-items:center;justify-content:center;margin-bottom:20px"><i data-lucide="message-square-lock" width="28" height="28" style="color:#294A95"></i></div>\
+    <button onclick="APP.goVerifyChoose()" style="align-self:flex-start;background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:18px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Back</button>\
+    <div style="width:56px;height:56px;border-radius:16px;background:#eef3fb;display:flex;align-items:center;justify-content:center;margin-bottom:20px"><i data-lucide="'+icon+'" width="28" height="28" style="color:#294A95"></i></div>\
     <h1 style="font-family:\'Sora\',sans-serif;font-size:25px;font-weight:700;margin:0 0 8px;letter-spacing:-.4px">Verify your account</h1>\
-    <p style="color:#65758B;font-size:15px;margin:0 0 28px;line-height:1.5">We sent a 6-digit code to <b style="color:#172230">alex.morgan@email.com</b>. Enter it below.</p>\
+    <p style="color:#65758B;font-size:15px;margin:0 0 28px;line-height:1.5">'+sub+'</p>\
     <div style="display:flex;gap:9px;margin-bottom:20px">'+inputs+'</div>\
-    <div style="font-size:13.5px;color:#65758B;text-align:center">Didn\'t get it? <b style="color:#294A95">Resend code</b> · <b style="color:#294A95">Use SMS</b></div>\
+    <div style="font-size:13.5px;color:#65758B;text-align:center">Didn\'t get it? <b style="color:#294A95">Resend code</b> · <b onclick="APP.swapVerifyMethod()" style="color:#294A95;cursor:pointer">'+swapLabel+'</b></div>\
     <button onclick="APP.goConsent()" style="margin-top:auto;width:100%;padding:17px;border:none;border-radius:15px;background:#C6202C;color:#fff;font-weight:700;font-size:16px;cursor:pointer">Verify &amp; continue</button>\
   </div>'; };
 
@@ -696,7 +892,7 @@ S.resume = function(V){ return '\
     <h1 style="font-family:\'Sora\',sans-serif;font-size:23px;font-weight:700;margin:4px 0 14px;letter-spacing:-.4px">Resume &amp; interview prep</h1>\
     <div style="display:flex;gap:11px;margin-bottom:20px">\
       <button onclick="APP.noop()" style="flex:1;text-align:left;border:2px solid #294A95;background:#eef3fb;border-radius:16px;padding:14px;cursor:pointer"><i data-lucide="file-text" width="24" height="24" style="color:#294A95"></i><div style="font-weight:700;font-size:14px;margin-top:8px">Resume Builder</div><div style="font-size:11px;color:#65758B;margin-top:2px">Guided by Coach Blu</div></button>\
-      <button onclick="APP.noop()" style="flex:1;text-align:left;border:1.5px solid #eef2f6;background:#fff;border-radius:16px;padding:14px;cursor:pointer"><i data-lucide="mic" width="24" height="24" style="color:#65758B"></i><div style="font-weight:700;font-size:14px;margin-top:8px">Mock Interview</div><div style="font-size:11px;color:#65758B;margin-top:2px">Voice / video practice</div></button>\
+      <button onclick="APP.goInterviewPrep()" style="flex:1;text-align:left;border:1.5px solid #eef2f6;background:#fff;border-radius:16px;padding:14px;cursor:pointer"><i data-lucide="mic" width="24" height="24" style="color:#65758B"></i><div style="font-weight:700;font-size:14px;margin-top:8px">Mock Interview</div><div style="font-size:11px;color:#65758B;margin-top:2px">Voice / video practice</div></button>\
     </div>\
     <div style="background:#fff;border:1px solid #eef2f6;border-radius:18px;overflow:hidden;box-shadow:0 2px 10px rgba(23,34,48,.05)">\
       <div style="background:#f3f8fb;padding:12px 15px;border-bottom:1px solid #eef2f6;display:flex;align-items:center;gap:10px"><div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#00BCD4,#0197ab);display:flex;align-items:center;justify-content:center">'+BLU_AV+'</div><div><div style="font-weight:700;font-size:13.5px">Coach Blu · Resume Builder</div><div style="font-size:11px;color:#65758B">Section '+V.resumeStepNum+' of 4</div></div><div style="margin-left:auto;font-size:11px;font-weight:700;color:#00BCD4">'+V.resumePct+'%</div></div>\
@@ -733,9 +929,130 @@ S.resume = function(V){ return '\
           </div>\
           <div style="position:absolute;left:0;right:0;bottom:0;height:24px;background:linear-gradient(transparent,#fff);pointer-events:none"></div>\
         </div>\
-        <button onclick="APP.noop()" style="width:100%;margin-top:11px;padding:12px;border:1.5px solid #294A95;background:#fff;color:#294A95;border-radius:12px;font-weight:700;font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px"><i data-lucide="download" width="17" height="17" style="color:#294A95"></i>Download &amp; save resume</button>\
+        <button onclick="APP.openResumeExport()" style="width:100%;margin-top:11px;padding:12px;border:1.5px solid #294A95;background:#fff;color:#294A95;border-radius:12px;font-weight:700;font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px"><i data-lucide="download" width="17" height="17" style="color:#294A95"></i>Download &amp; save resume</button>\
       </div>\
     </div>\
+  </div>'; };
+
+S.interviewPrep = function(V){
+  var recs = V.interviewHasRecordings
+    ? V.interviewRecordings.map(function(r){ return '<button onclick="APP.reviewRecording(event,this)" data-id="'+r.id+'" style="width:100%;text-align:left;border:1px solid #eef2f6;background:#fff;border-radius:14px;padding:12px 13px;cursor:pointer;display:flex;gap:11px;align-items:center;margin-bottom:10px"><div style="width:42px;height:42px;border-radius:11px;background:#eef3fb;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="play" width="18" height="18" style="color:#294A95"></i></div><div style="flex:1"><div style="font-weight:700;font-size:13.5px">'+esc(r.title)+'</div><div style="font-size:11.5px;color:#65758B;margin-top:2px">'+esc(r.role)+' · '+esc(r.when)+' · '+esc(r.duration)+'</div></div><i data-lucide="chevron-right" width="18" height="18" style="color:#c8d2dc"></i></button>'; }).join('')
+    : '<div style="border:1.5px dashed #dbe3ec;border-radius:14px;padding:22px 16px;text-align:center"><i data-lucide="video" width="22" height="22" style="color:#c8d2dc"></i><div style="font-size:13px;font-weight:600;margin-top:8px;color:#65758B">No recordings yet</div><div style="font-size:12px;margin-top:3px;color:#8a97a6;line-height:1.45">Finish a mock interview and your session will be saved to your profile to review anytime.</div></div>';
+  return '\
+  <div class="fade" style="padding:16px 16px 24px">\
+    <button onclick="APP.backFromInterviewPrep()" style="background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:16px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Back</button>\
+    <div style="width:52px;height:52px;border-radius:15px;background:#eef3fb;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><i data-lucide="mic" width="26" height="26" style="color:#294A95"></i></div>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:24px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">Mock Interview Hub</h1>\
+    <p style="color:#65758B;font-size:14px;margin:0 0 18px;line-height:1.5">Practice real interview questions with Coach Blu by voice and camera. Every session is saved to your profile so you can replay it and track your progress.</p>\
+    <div style="background:linear-gradient(135deg,#e8f7f9,#f0fbfc);border:1px solid #cdeef2;border-radius:16px;padding:15px;display:flex;gap:12px;margin-bottom:16px">\
+      <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#00BCD4,#0197ab);flex:none;display:flex;align-items:center;justify-content:center">'+BLU_AV+'</div>\
+      <div style="flex:1"><div style="font-weight:700;font-size:13px;color:#0a5a66;margin-bottom:3px">Coach Blu</div><div style="font-size:12.5px;line-height:1.5;color:#0a5a66">Let\'s practice for your interview! Pick the role you\'re targeting and I\'ll walk you through it question by question.</div></div>\
+    </div>\
+    <button onclick="APP.goInterviewRole()" style="width:100%;padding:16px;border:none;border-radius:14px;background:#C6202C;color:#fff;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:24px"><i data-lucide="video" width="19" height="19" style="color:#fff"></i>Start a mock interview</button>\
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase">Saved to your profile</div>'+(V.interviewHasRecordings?'<span style="font-size:11px;font-weight:700;color:#294A95">'+V.interviewRecordings.length+'</span>':'')+'</div>\
+    '+recs+'\
+  </div>'; };
+
+S.interviewRole = function(V){
+  var roles=[
+    {label:'Medical Assistant', desc:'Your current pathway', icon:'stethoscope'},
+    {label:'Phlebotomy Technician', desc:'Related clinical role', icon:'syringe'},
+    {label:'Front Desk / Patient Coordinator', desc:'Administrative healthcare', icon:'clipboard-list'},
+    {label:'Other role', desc:'Practice general questions', icon:'briefcase'}
+  ];
+  var opts=roles.map(function(r){ var on=V.interviewRole===r.label; return '<button onclick="APP.setInterviewRole(event,this)" data-val="'+esc(r.label)+'" style="width:100%;text-align:left;padding:14px;border-radius:14px;border:2px solid '+(on?'#294A95':'#eef2f6')+';background:'+(on?'#eef3fb':'#fff')+';cursor:pointer;display:flex;align-items:center;gap:13px;margin-bottom:10px"><div style="width:40px;height:40px;border-radius:11px;background:'+(on?'#294A95':'#f3f6fa')+';display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="'+r.icon+'" width="20" height="20" style="color:'+(on?'#fff':'#65758B')+'"></i></div><div style="flex:1"><div style="font-weight:700;font-size:14px">'+esc(r.label)+'</div><div style="font-size:11.5px;color:#65758B;margin-top:1px">'+esc(r.desc)+'</div></div>'+(on?'<i data-lucide="check-circle-2" width="21" height="21" style="color:#294A95"></i>':'')+'</button>'; }).join('');
+  return '\
+  <div class="fade" style="padding:16px 16px 24px;min-height:100%;display:flex;flex-direction:column">\
+    <button onclick="APP.goInterviewPrep()" style="align-self:flex-start;background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:16px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Mock Interview Hub</button>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:23px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">Select role / job target</h1>\
+    <p style="color:#65758B;font-size:14px;margin:0 0 20px;line-height:1.5">I\'ll tailor your practice questions to the role you\'re aiming for.</p>\
+    '+opts+'\
+    <button onclick="APP.startMockInterview()" style="margin-top:auto;width:100%;padding:16px;border:none;border-radius:14px;background:#C6202C;color:#fff;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="play" width="18" height="18" style="color:#fff"></i>Start interview session</button>\
+  </div>'; };
+
+S.mockInterview = function(V){
+  var bars=''; for(var i=0;i<7;i++){ bars+='<span style="display:inline-block;width:4px;height:'+(10+((i*7)%18))+'px;border-radius:2px;background:#C6202C;margin:0 2px;animation:bluPulse 1s ease infinite;animation-delay:'+(i*0.12)+'s"></span>'; }
+  var control;
+  if(V.interviewRecording){
+    control = '<div style="text-align:center"><div style="display:flex;align-items:center;justify-content:center;height:34px;margin-bottom:12px">'+bars+'</div>'
+      + '<div style="font-size:12.5px;color:#C6202C;font-weight:700;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:#C6202C;display:inline-block;animation:bluPulse 1.1s ease infinite"></span>Recording your answer…</div>'
+      + '<button onclick="APP.toggleRecord()" style="width:100%;padding:14px;border:none;border-radius:13px;background:#172230;color:#fff;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="square" width="16" height="16" style="color:#fff"></i>Stop recording</button></div>';
+  } else if(V.interviewAnswered){
+    control = '<div><div style="background:#eafaf1;border:1px solid #cdeeda;border-radius:12px;padding:11px 13px;font-size:12.5px;color:#1e9159;display:flex;gap:8px;align-items:center;margin-bottom:12px;font-weight:600"><i data-lucide="check-circle-2" width="16" height="16" style="color:#1e9159"></i>Answer recorded</div>'
+      + '<div style="display:flex;gap:9px"><button onclick="APP.toggleRecord()" style="flex:none;padding:14px 15px;border:1.5px solid #e3e9f0;border-radius:13px;background:#fff;color:#3d4a5c;font-weight:700;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:6px"><i data-lucide="rotate-ccw" width="15" height="15" style="color:#3d4a5c"></i>Retake</button>'
+      + '<button onclick="APP.interviewNext()" style="flex:1;padding:14px;border:none;border-radius:13px;background:#C6202C;color:#fff;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">'+(V.interviewIsLast?'<i data-lucide="check" width="17" height="17" style="color:#fff"></i>Finish &amp; save':'Next question<i data-lucide="arrow-right" width="17" height="17" style="color:#fff"></i>')+'</button></div></div>';
+  } else {
+    control = '<button onclick="APP.toggleRecord()" style="width:100%;padding:14px;border:none;border-radius:13px;background:#C6202C;color:#fff;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="mic" width="18" height="18" style="color:#fff"></i>Record answer</button>';
+  }
+  return '\
+  <div class="fade" style="padding:16px 16px 24px;min-height:100%;display:flex;flex-direction:column">\
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">\
+      <button onclick="APP.goInterviewPrep()" style="background:#f3f6fa;border:none;border-radius:10px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i></button>\
+      <div style="flex:1"><div style="font-weight:700;font-size:14px">Mock Interview</div><div style="font-size:11.5px;color:#65758B">'+esc(V.interviewRole)+' · Question '+V.interviewStepNum+' of '+V.interviewTotal+'</div></div>\
+      <span style="font-size:11px;font-weight:700;color:#294A95">'+V.interviewPct+'%</span>\
+    </div>\
+    <div style="height:6px;background:#eef2f6;border-radius:3px;overflow:hidden;margin-bottom:22px"><div style="height:100%;width:'+V.interviewPct+'%;background:#294A95;border-radius:3px;transition:width .3s"></div></div>\
+    <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:14px">\
+      <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#00BCD4,#0197ab);flex:none;display:flex;align-items:center;justify-content:center">'+BLU_AV+'</div>\
+      <div style="flex:1;background:#f3f8fb;border-radius:4px 15px 15px 15px;padding:14px 15px"><div style="font-size:14.5px;line-height:1.5;color:#172230;font-weight:600">'+esc(V.interviewQ)+'</div></div>\
+    </div>\
+    <div style="font-size:12px;color:#8a97a6;display:flex;gap:6px;align-items:flex-start;line-height:1.45;margin:0 0 auto 44px"><i data-lucide="lightbulb" width="13" height="13" style="color:#f5a623;flex:none;margin-top:1px"></i>'+esc(V.interviewTip)+'</div>\
+    <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(23,34,48,.05);margin-top:22px">\
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px"><i data-lucide="video" width="16" height="16" style="color:#65758B"></i><div style="font-size:12px;font-weight:700;color:#65758B;text-transform:uppercase;letter-spacing:.4px">Your response</div></div><div style="font-size:11px;color:#8a97a6;font-weight:600">Voice &amp; camera</div></div>\
+      <div style="position:relative;border-radius:13px;overflow:hidden;background:#172230;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;margin-bottom:14px">\
+        <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 42%,rgba(0,188,212,.18),transparent 62%)"></div>\
+        <div style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center"><i data-lucide="user" width="27" height="27" style="color:rgba(255,255,255,.7)"></i></div>\
+        '+(V.interviewRecording?'<div style="position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(198,32,44,.92);padding:4px 9px;border-radius:20px"><span style="width:7px;height:7px;border-radius:50%;background:#fff;animation:bluPulse 1.1s ease infinite"></span><span style="font-size:10px;font-weight:700;color:#fff;letter-spacing:.5px">REC</span></div>':'<div style="position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(23,34,48,.55);padding:4px 9px;border-radius:20px"><i data-lucide="video" width="12" height="12" style="color:#fff"></i><span style="font-size:10px;font-weight:600;color:#fff">Camera on</span></div>')+'\
+        <div style="position:absolute;bottom:10px;right:10px;background:rgba(23,34,48,.55);padding:4px 8px;border-radius:8px;display:flex;align-items:center;gap:5px"><i data-lucide="mic" width="12" height="12" style="color:#fff"></i><span style="font-size:10px;color:#fff">Mic on</span></div>\
+      </div>\
+      '+control+'\
+    </div>\
+  </div>'; };
+
+S.interviewComplete = function(V){
+  var strengths=interviewFeedback.strengths.map(function(s){ return '<div style="display:flex;gap:9px;align-items:flex-start;margin-bottom:9px"><i data-lucide="check-circle-2" width="17" height="17" style="color:#1e9159;flex:none;margin-top:1px"></i><div style="font-size:13px;color:#3d4a5c;line-height:1.45">'+esc(s)+'</div></div>'; }).join('');
+  var tips=interviewFeedback.tips.map(function(s){ return '<div style="display:flex;gap:9px;align-items:flex-start;margin-bottom:9px"><i data-lucide="arrow-up-right" width="17" height="17" style="color:#c67f18;flex:none;margin-top:1px"></i><div style="font-size:13px;color:#3d4a5c;line-height:1.45">'+esc(s)+'</div></div>'; }).join('');
+  return '\
+  <div class="fade" style="padding:20px 16px 24px">\
+    <div style="text-align:center;margin-bottom:18px">\
+      <div style="width:72px;height:72px;border-radius:50%;background:#eafaf1;display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><i data-lucide="check-circle-2" width="38" height="38" style="color:#2ea86a"></i></div>\
+      <h1 style="font-family:\'Sora\',sans-serif;font-size:23px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">Session complete!</h1>\
+      <div style="display:inline-flex;align-items:center;gap:6px;background:#eafaf1;border:1px solid #cdeeda;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#1e9159"><i data-lucide="badge-check" width="14" height="14" style="color:#1e9159"></i>Saved to your profile</div>\
+    </div>\
+    <div style="background:linear-gradient(135deg,#e8f7f9,#f0fbfc);border:1px solid #cdeef2;border-radius:16px;padding:15px;display:flex;gap:12px;margin-bottom:16px">\
+      <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#00BCD4,#0197ab);flex:none;display:flex;align-items:center;justify-content:center">'+BLU_AV+'</div>\
+      <div style="flex:1"><div style="font-weight:700;font-size:13px;color:#0a5a66;margin-bottom:3px">Coach Blu</div><div style="font-size:12.5px;line-height:1.5;color:#0a5a66">Here\'s how you did on your '+esc(V.interviewRole)+' practice — you answered all '+V.interviewTotal+' questions. A few things stood out, and a couple to polish.</div></div>\
+    </div>\
+    <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:15px;margin-bottom:14px">\
+      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#1e9159;text-transform:uppercase;margin-bottom:11px">What went well</div>'+strengths+'</div>\
+    <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:15px;margin-bottom:14px">\
+      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#c67f18;text-transform:uppercase;margin-bottom:11px">Coach Blu\'s tips</div>'+tips+'</div>\
+    <div style="background:#f7f8fa;border:1px dashed #d3dbe4;border-radius:16px;padding:14px 15px;display:flex;gap:11px;align-items:flex-start;margin-bottom:20px">\
+      <i data-lucide="sparkles" width="18" height="18" style="color:#9aa7b6;flex:none;margin-top:1px"></i>\
+      <div style="flex:1"><div style="font-weight:700;font-size:13px;color:#5c6b7a;display:flex;align-items:center;gap:7px">AI performance score <span style="font-size:9.5px;font-weight:700;background:#eef2f6;color:#8a97a6;padding:2px 7px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px">Coming soon</span></div><div style="font-size:12px;color:#8a97a6;line-height:1.45;margin-top:3px">Automated scoring of your delivery is pending internal review. For now, use Coach Blu\'s notes above and rewatch your recording.</div></div>\
+    </div>\
+    <button onclick="APP.reviewRecording(event,this)" data-id="'+(V.reviewRec?V.reviewRec.id:'')+'" style="width:100%;padding:15px;border:none;border-radius:14px;background:#294A95;color:#fff;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:11px"><i data-lucide="play" width="18" height="18" style="color:#fff"></i>Review recording</button>\
+    <button onclick="APP.backToInterviewPrep()" style="width:100%;padding:15px;border:1.5px solid #e3e9f0;border-radius:14px;background:#fff;color:#3d4a5c;font-weight:700;font-size:15px;cursor:pointer">Done</button>\
+  </div>'; };
+
+S.interviewReview = function(V){
+  var r = V.reviewRec;
+  if(!r) return '<div class="fade" style="padding:16px"><button onclick="APP.backToInterviewPrep()" style="background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;color:#3d4a5c">Back</button><p style="color:#65758B;margin-top:20px">No recording selected.</p></div>';
+  var qlist=interviewQuestions.map(function(it,i){ return '<div style="display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-top:'+(i===0?'none':'1px solid #f2f5f8')+'"><div style="width:24px;height:24px;border-radius:7px;background:#eef3fb;display:flex;align-items:center;justify-content:center;flex:none;font-size:11px;font-weight:700;color:#294A95">'+(i+1)+'</div><div style="flex:1"><div style="font-size:12.5px;font-weight:600;color:#172230;line-height:1.4">'+esc(it.q)+'</div><div style="font-size:11px;color:#65758B;margin-top:2px;display:flex;align-items:center;gap:5px"><i data-lucide="check" width="12" height="12" style="color:#1e9159"></i>Answered</div></div></div>'; }).join('');
+  return '\
+  <div class="fade" style="padding:16px 16px 24px">\
+    <button onclick="APP.backToInterviewPrep()" style="background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:16px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Interview Prep</button>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:22px;font-weight:700;margin:0 0 4px;letter-spacing:-.4px">'+esc(r.title)+'</h1>\
+    <div style="font-size:12.5px;color:#65758B;margin-bottom:16px">'+esc(r.role)+' · '+esc(r.when)+' · '+esc(r.duration)+'</div>\
+    <div style="position:relative;border-radius:16px;overflow:hidden;background:#172230;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;margin-bottom:6px">\
+      <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,rgba(0,188,212,.22),transparent 60%)"></div>\
+      <button onclick="APP.noop()" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.92);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:1"><i data-lucide="play" width="24" height="24" style="color:#172230"></i></button>\
+      <div style="position:absolute;left:12px;right:12px;bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:#fff;font-weight:600">0:00</span><div style="flex:1;height:4px;background:rgba(255,255,255,.3);border-radius:2px"><div style="width:0;height:100%;background:#00BCD4;border-radius:2px"></div></div><span style="font-size:11px;color:rgba(255,255,255,.8)">'+esc(r.duration)+'</span></div>\
+    </div>\
+    <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#8a97a6;margin-bottom:20px"><i data-lucide="shield-check" width="13" height="13" style="color:#8a97a6"></i>Saved to your profile · private to you</div>\
+    <div style="display:flex;align-items:center;justify-content:space-between;background:#f7f8fa;border:1px dashed #d3dbe4;border-radius:14px;padding:13px 15px;margin-bottom:16px"><div style="display:flex;align-items:center;gap:8px"><i data-lucide="sparkles" width="16" height="16" style="color:#9aa7b6"></i><div style="font-weight:700;font-size:13.5px;color:#5c6b7a">AI performance score</div></div><span style="font-size:9.5px;font-weight:700;background:#eef2f6;color:#8a97a6;padding:3px 9px;border-radius:7px;text-transform:uppercase;letter-spacing:.3px">Coming soon</span></div>\
+    <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase;margin-bottom:6px">Questions covered</div>\
+    <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:6px 15px">'+qlist+'</div>\
   </div>'; };
 
 S.ajc = function(V){
@@ -756,14 +1073,26 @@ S.ajc = function(V){
     <p style="font-size:11.5px;color:#9aa7b6;text-align:center;margin-top:10px;line-height:1.5">Submits a referral by email. A case manager reaches out to you directly — no appointment booking in-app.</p>\
   </div>'; };
 
+function milestoneRow(m){
+  var right;
+  if(m.custom){
+    right = '<button onclick="APP.toggleCustomGoal(event,this)" data-i="'+m.goalIndex+'" style="border:1.5px solid '+(m.done?'#bfe6cf':'#c7d6ef')+';background:'+(m.done?'#eafaf1':'#fff')+';color:'+(m.done?'#1e9159':'#294A95')+';font-size:10.5px;font-weight:700;padding:5px 10px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px;flex:none">'+(m.done?'<i data-lucide="check" width="12" height="12" style="color:#1e9159"></i>Done':'Mark done')+'</button>';
+  } else if(m.action){
+    right = '<button onclick="APP.'+m.action+'()" style="border:1.5px solid #c7d6ef;background:#eef3fb;color:#294A95;font-size:10.5px;font-weight:700;padding:5px 11px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:4px;flex:none">'+esc(m.actionLabel||'Open')+'<i data-lucide="arrow-right" width="12" height="12" style="color:#294A95"></i></button>';
+  } else {
+    right = '<span style="font-size:10.5px;font-weight:700;color:'+m.statusColor+'">'+m.status+'</span>';
+  }
+  var labelStyle = 'font-weight:600;font-size:13.5px;color:'+m.textColor+((m.custom&&m.done)?';text-decoration:line-through;text-decoration-color:#9fd4b5':'');
+  return '<div style="display:flex;gap:12px;align-items:center;padding:11px 0;position:relative">'
+    + '<div style="width:32px;height:32px;border-radius:50%;background:'+m.circleBg+';display:flex;align-items:center;justify-content:center;flex:none;z-index:1;border:2px solid '+m.circleBorder+'"><i data-lucide="'+m.markIcon+'" width="16" height="16" style="color:'+m.markColor+'"></i></div>'
+    + (m.showLine?'<div style="position:absolute;left:15px;top:34px;width:2px;height:22px;background:'+m.lineColor+'"></div>':'')
+    + '<div style="flex:1"><div style="'+labelStyle+'">'+esc(m.label)+'</div>'+(m.sub?'<div style="font-size:11px;color:#8a97a6;margin-top:1px">'+esc(m.sub)+'</div>':'')+'</div>'
+    + right
+    + '</div>';
+}
+
 S.roadmap = function(V){
-  var ms=V.milestones.map(function(m){ return '\
-    <div style="display:flex;gap:12px;align-items:center;padding:11px 0;position:relative">\
-      <div style="width:32px;height:32px;border-radius:50%;background:'+m.circleBg+';display:flex;align-items:center;justify-content:center;flex:none;z-index:1;border:2px solid '+m.circleBorder+'"><i data-lucide="'+m.markIcon+'" width="16" height="16" style="color:'+m.markColor+'"></i></div>\
-      '+(m.showLine?'<div style="position:absolute;left:15px;top:34px;width:2px;height:22px;background:'+m.lineColor+'"></div>':'')+'\
-      <div style="flex:1"><div style="font-weight:600;font-size:13.5px;color:'+m.textColor+'">'+m.label+'</div></div>\
-      <span style="font-size:10.5px;font-weight:700;color:'+m.statusColor+'">'+m.status+'</span>\
-    </div>'; }).join('');
+  var ms=V.milestones.map(milestoneRow).join('');
   var bp=V.badgesPreview.map(function(b){ return '<div style="flex:none;width:88px;text-align:center"><div style="width:66px;height:66px;margin:0 auto;border-radius:50%;background:'+b.bg+';display:flex;align-items:center;justify-content:center;box-shadow:'+b.shadow+';opacity:'+b.opacity+'"><i data-lucide="'+b.icon+'" width="30" height="30" style="color:'+b.color+'"></i></div><div style="font-size:11px;font-weight:600;margin-top:7px;line-height:1.2;color:'+b.labelColor+'">'+b.label+'</div></div>'; }).join('');
   var saved=V.savedProgramsList.map(function(pr){ return '<button onclick="APP.openProgram(event,this)" data-id="'+pr.id+'" style="text-align:left;border:1px solid #eef2f6;background:#fff;border-radius:14px;padding:13px;cursor:pointer;display:flex;gap:11px;align-items:center"><div style="width:40px;height:40px;border-radius:11px;background:#e6f6f9;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="bookmark-check" width="20" height="20" style="color:#00897B"></i></div><div style="flex:1"><div style="font-weight:700;font-size:13.5px">'+pr.name+'</div><div style="font-size:11.5px;color:#65758B;margin-top:2px">'+pr.provider+' · '+pr.duration+'</div></div><i data-lucide="chevron-right" width="18" height="18" style="color:#c8d2dc"></i></button>'; }).join('');
   return '\
@@ -795,7 +1124,7 @@ S.roadmap = function(V){
         <div style="flex:1"><div style="font-family:\'Sora\',sans-serif;font-weight:700;font-size:15px">Medical Assistant</div><div style="font-size:12px;color:#65758B;margin-top:2px">$41,600/yr · 94% match</div></div>\
         <span style="font-size:10px;font-weight:700;background:#eafaf1;color:#1e9159;padding:5px 9px;border-radius:8px">On track</span>\
       </button>\
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase">Progress milestones</div><button onclick="APP.goSummary()" style="background:none;border:none;color:#294A95;font-weight:700;font-size:12px;cursor:pointer">Summary</button></div>\
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase">Progress milestones</div><div style="display:flex;align-items:center;gap:14px"><button onclick="APP.goEditRoadmap()" style="background:none;border:none;color:#294A95;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px"><i data-lucide="pencil" width="13" height="13" style="color:#294A95"></i>Edit</button><button onclick="APP.goSummary()" style="background:none;border:none;color:#294A95;font-weight:700;font-size:12px;cursor:pointer">Summary</button></div></div>\
       <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:8px 15px;margin-bottom:22px">'+ms+'</div>\
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase">Milestone badges</div><button onclick="APP.goBadges()" style="background:none;border:none;color:#294A95;font-weight:700;font-size:12px;cursor:pointer">View all</button></div>\
       <div class="cpp-scroll" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;margin-bottom:22px">'+bp+'</div>\
@@ -811,6 +1140,46 @@ S.roadmap = function(V){
         <div style="flex:1"><div style="font-weight:700;font-size:13px;color:#0a5a66;margin-bottom:3px">Coach Blu suggests</div><div style="font-size:12.5px;line-height:1.5;color:#0a5a66;margin-bottom:10px">You\'re 2 steps from your first training referral. Want me to help you finish your resume, then practice a mock interview?</div><button onclick="APP.openChat()" style="background:#00BCD4;border:none;color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;font-size:12.5px;cursor:pointer">Open chat</button></div>\
       </div>\
     </div>\
+  </div>'; };
+
+S.editRoadmap = function(V){
+  var ms=V.milestones.map(milestoneRow).join('');
+  var custom=V.customGoals.map(function(g,i){ return '\
+    <div style="display:flex;gap:11px;align-items:center;border:1px solid #eef2f6;background:#fff;border-radius:13px;padding:11px 13px">\
+      <div style="width:34px;height:34px;border-radius:10px;background:'+(g.done?'#eafaf1':'#eef3fb')+';display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="'+(g.done?'check':'flag')+'" width="17" height="17" style="color:'+(g.done?'#1e9159':'#294A95')+'"></i></div>\
+      <div style="flex:1"><div style="font-weight:700;font-size:13.5px'+(g.done?';text-decoration:line-through;text-decoration-color:#9fd4b5;color:#5c6b7a':'')+'">'+esc(g.label)+'</div>'+(g.when?'<div style="font-size:11.5px;color:#65758B;margin-top:1px">'+esc(g.when)+'</div>':'')+'</div>\
+      <button onclick="APP.toggleCustomGoal(event,this)" data-i="'+i+'" title="'+(g.done?'Mark not done':'Mark complete')+'" style="border:1.5px solid '+(g.done?'#bfe6cf':'#c7d6ef')+';background:'+(g.done?'#eafaf1':'#fff')+';width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none"><i data-lucide="check" width="16" height="16" style="color:'+(g.done?'#1e9159':'#c7d6ef')+'"></i></button>\
+      <button onclick="APP.removeCustomGoal(event,this)" data-i="'+i+'" style="border:none;background:#fef1f1;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none"><i data-lucide="trash-2" width="15" height="15" style="color:#C6202C"></i></button>\
+    </div>'; }).join('');
+  return '\
+  <div class="fade" style="padding:16px 16px 24px">\
+    <button onclick="APP.goRoadmap()" style="background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:16px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Roadmap</button>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:23px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">Edit roadmap</h1>\
+    <p style="color:#65758B;font-size:13.5px;margin:0 0 18px;line-height:1.5">Add your own goals alongside the milestones Coach Blu mapped for you. Your goals show up right in your milestone list.</p>\
+    <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase;margin-bottom:10px">Milestone list</div>\
+    <div style="background:#fff;border:1px solid #eef2f6;border-radius:16px;padding:8px 15px;margin-bottom:20px">'+ms+'</div>\
+    '+(V.customGoalCount?'<div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase;margin-bottom:10px">Your custom goals</div><div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">'+custom+'</div>':'')+'\
+    <button onclick="APP.goAddGoal()" style="width:100%;padding:16px;border:1.5px dashed #294A95;border-radius:14px;background:#f5f8fd;color:#294A95;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="plus" width="19" height="19" style="color:#294A95"></i>Add a custom goal</button>\
+  </div>'; };
+
+S.addGoal = function(V){
+  var presets=['Get CPR certified','Shadow a medical assistant','Finish EHR micro-credential','Apply for WIOA funding'];
+  var chips=presets.map(function(p){ return '<button onclick="APP.setGoalPreset(event,this)" data-val="'+esc(p)+'" style="text-align:left;padding:11px 13px;border-radius:12px;border:1.5px solid #e3e9f0;background:#fff;color:#3d4a5c;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px"><i data-lucide="plus-circle" width="15" height="15" style="color:#294A95"></i>'+esc(p)+'</button>'; }).join('');
+  return '\
+  <div class="fade" style="padding:16px 16px 24px">\
+    <button onclick="APP.goEditRoadmap()" style="background:#f3f6fa;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;color:#3d4a5c;margin-bottom:16px"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i>Edit roadmap</button>\
+    <h1 style="font-family:\'Sora\',sans-serif;font-size:23px;font-weight:700;margin:0 0 6px;letter-spacing:-.4px">Add a custom goal</h1>\
+    <div style="background:linear-gradient(135deg,#e8f7f9,#f0fbfc);border:1px solid #cdeef2;border-radius:14px;padding:13px;display:flex;gap:11px;margin-bottom:20px">\
+      <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#00BCD4,#0197ab);flex:none;display:flex;align-items:center;justify-content:center">'+BLU_AV+'</div>\
+      <div style="font-size:12.5px;line-height:1.5;color:#0a5a66">Nice — setting your own goal keeps you moving. Name something you want to accomplish and I\'ll add it to your roadmap.</div>\
+    </div>\
+    <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Goal</label>\
+    <input id="goalInput" value="'+esc(V.goalDraft||'')+'" placeholder="e.g. Get CPR certified" style="width:100%;border:1.5px solid #e3e9f0;border-radius:13px;padding:14px;font-size:15px;outline:none;margin-bottom:16px;background:#fff">\
+    <label style="font-size:12px;font-weight:600;color:#65758B;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px">Target date <span style="text-transform:none;font-weight:500;color:#9aa7b6">(optional)</span></label>\
+    <input id="goalDateInput" placeholder="e.g. Aug 2026" style="width:100%;border:1.5px solid #e3e9f0;border-radius:13px;padding:14px;font-size:15px;outline:none;margin-bottom:18px;background:#fff">\
+    <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase;margin-bottom:10px">Or start from a suggestion</div>\
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:22px">'+chips+'</div>\
+    <button onclick="APP.addCustomGoal()" style="width:100%;padding:16px;border:none;border-radius:14px;background:#C6202C;color:#fff;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="check" width="19" height="19" style="color:#fff"></i>Add goal</button>\
   </div>'; };
 
 S.summary = function(V){ return '\
@@ -830,7 +1199,7 @@ S.summary = function(V){ return '\
     <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#65758B;text-transform:uppercase;margin-bottom:10px">Pending actions</div>\
     <div style="display:flex;flex-direction:column;gap:9px">\
       <div style="border:1px solid #f6e0c4;background:#fff6ec;border-radius:12px;padding:12px;display:flex;align-items:center;gap:11px"><i data-lucide="circle-alert" width="20" height="20" style="color:#c67f18"></i><div style="flex:1;font-size:13.5px;font-weight:600;color:#8a6d1a">Finish your resume</div><i data-lucide="chevron-right" width="18" height="18" style="color:#d3b483"></i></div>\
-      <div style="border:1px solid #f6e0c4;background:#fff6ec;border-radius:12px;padding:12px;display:flex;align-items:center;gap:11px"><i data-lucide="circle-alert" width="20" height="20" style="color:#c67f18"></i><div style="flex:1;font-size:13.5px;font-weight:600;color:#8a6d1a">Try a mock interview</div><i data-lucide="chevron-right" width="18" height="18" style="color:#d3b483"></i></div>\
+      <button onclick="APP.goInterviewPrep()" style="width:100%;text-align:left;border:1px solid #f6e0c4;background:#fff6ec;border-radius:12px;padding:12px;display:flex;align-items:center;gap:11px;cursor:pointer"><i data-lucide="mic" width="20" height="20" style="color:#c67f18"></i><div style="flex:1;font-size:13.5px;font-weight:600;color:#8a6d1a">Try a mock interview</div><i data-lucide="chevron-right" width="18" height="18" style="color:#d3b483"></i></button>\
     </div>\
   </div>'; };
 
@@ -1050,8 +1419,50 @@ function chatHtml(V){
     </div>\
   </div>'; }
 
+function resumeExportModalHtml(V){
+  var link = 'cpptn.org/r/alex-morgan-9f2a';
+  if(V.resumeExportView==='share'){
+    return '\
+    <div onclick="APP.closeModal()" style="position:absolute;inset:0;background:rgba(23,34,48,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center">\
+      <div onclick="event.stopPropagation()" style="background:#fff;border-radius:22px 22px 0 0;padding:20px 20px 26px;width:100%;max-width:420px;animation:sheetUp .32s cubic-bezier(.2,.8,.3,1) both">\
+        <div style="width:38px;height:4px;border-radius:2px;background:#e3e9f0;margin:0 auto 16px"></div>\
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">\
+          <button onclick="APP.backResumeExport()" style="border:none;background:#f3f6fa;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none"><i data-lucide="arrow-left" width="16" height="16" style="color:#3d4a5c"></i></button>\
+          <div style="font-family:\'Sora\',sans-serif;font-weight:700;font-size:18px">Share resume</div>\
+        </div>\
+        <p style="font-size:13px;color:#65758B;line-height:1.5;margin:0 0 16px 38px">Send a live link to your resume. Anyone with the link can view it — no account needed.</p>\
+        <div style="display:flex;align-items:center;gap:10px;border:1.5px solid #e3e9f0;border-radius:13px;padding:11px 13px;margin-bottom:14px">\
+          <i data-lucide="link" width="17" height="17" style="color:#65758B;flex:none"></i>\
+          <div style="flex:1;font-size:13px;color:#3d4a5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+link+'</div>\
+          <button onclick="APP.copyResumeLink()" style="border:none;background:'+(V.resumeShareCopied?'#eafaf1':'#eef3fb')+';color:'+(V.resumeShareCopied?'#2ea86a':'#294A95')+';font-weight:700;font-size:12.5px;border-radius:9px;padding:7px 12px;cursor:pointer;flex:none;display:flex;align-items:center;gap:5px"><i data-lucide="'+(V.resumeShareCopied?'check':'copy')+'" width="14" height="14"></i>'+(V.resumeShareCopied?'Copied':'Copy')+'</button>\
+        </div>\
+        <div style="display:flex;gap:11px">\
+          <button onclick="APP.shareResumeEmail()" style="flex:1;border:1.5px solid #e3e9f0;background:#fff;border-radius:14px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:7px"><i data-lucide="mail" width="20" height="20" style="color:#294A95"></i><span style="font-size:12.5px;font-weight:600;color:#3d4a5c">Email</span></button>\
+          <button onclick="APP.shareResumeNative()" style="flex:1;border:1.5px solid #e3e9f0;background:#fff;border-radius:14px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:7px"><i data-lucide="share-2" width="20" height="20" style="color:#294A95"></i><span style="font-size:12.5px;font-weight:600;color:#3d4a5c">More apps</span></button>\
+        </div>\
+      </div>\
+    </div>';
+  }
+  var fmts = ['PDF','Word'].map(function(f){ var on=(V.resumeFormat||'PDF')===f; return '<button onclick="APP.setResumeFormat(event,this)" data-val="'+f+'" style="flex:1;padding:11px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid '+(on?'#294A95':'#e3e9f0')+';background:'+(on?'#eef3fb':'#fff')+';color:'+(on?'#294A95':'#65758B')+'">'+f+'</button>'; }).join('');
+  return '\
+  <div onclick="APP.closeModal()" style="position:absolute;inset:0;background:rgba(23,34,48,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center">\
+    <div onclick="event.stopPropagation()" style="background:#fff;border-radius:22px 22px 0 0;padding:20px 20px 26px;width:100%;max-width:420px;animation:sheetUp .32s cubic-bezier(.2,.8,.3,1) both">\
+      <div style="width:38px;height:4px;border-radius:2px;background:#e3e9f0;margin:0 auto 16px"></div>\
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">\
+        <div style="width:46px;height:46px;border-radius:13px;background:#eafaf1;display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="file-check-2" width="24" height="24" style="color:#2ea86a"></i></div>\
+        <div><div style="font-family:\'Sora\',sans-serif;font-weight:700;font-size:18px">Your resume is ready</div><div style="font-size:12.5px;color:#65758B;margin-top:1px">Alex Morgan · Medical Assistant</div></div>\
+      </div>\
+      <div style="font-size:11px;font-weight:700;color:#65758B;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Format</div>\
+      <div style="display:flex;gap:9px;margin-bottom:18px">'+fmts+'</div>\
+      <button onclick="APP.downloadResume()" style="width:100%;padding:15px;border:none;border-radius:14px;background:#294A95;color:#fff;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:11px"><i data-lucide="download" width="19" height="19" style="color:#fff"></i>Download resume</button>\
+      <button onclick="APP.goShareResume()" style="width:100%;padding:15px;border:1.5px solid #294A95;background:#fff;color:#294A95;border-radius:14px;font-weight:700;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px"><i data-lucide="share-2" width="19" height="19" style="color:#294A95"></i>Share resume</button>\
+    </div>\
+  </div>';
+}
+
 function modalHtml(V){
   if(!V.modalOpen) return '';
+  if(V.modal==='resumeExport') return resumeExportModalHtml(V);
   return '\
   <div onclick="APP.closeModal()" style="position:absolute;inset:0;background:rgba(23,34,48,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:28px">\
     <div onclick="event.stopPropagation()" style="background:#fff;border-radius:22px;padding:26px 22px;text-align:center;max-width:320px;animation:pop .3s ease both">\
@@ -1059,6 +1470,17 @@ function modalHtml(V){
       <div style="font-family:\'Sora\',sans-serif;font-weight:700;font-size:19px;margin-bottom:8px">'+V.modalTitle+'</div>\
       <p style="font-size:13.5px;color:#65758B;line-height:1.55;margin:0 0 20px">'+V.modalBody+'</p>\
       <button onclick="APP.closeModal()" style="width:100%;padding:14px;border:none;border-radius:13px;background:#294A95;color:#fff;font-weight:700;font-size:15px;cursor:pointer">Got it</button>\
+    </div>\
+  </div>'; }
+
+function toastHtml(V){
+  if(!V.toast) return '';
+  var t=V.toast;
+  return '\
+  <div onclick="APP.dismissToast()" style="position:absolute;left:16px;right:16px;bottom:150px;z-index:60;cursor:pointer">\
+    <div style="background:#172230;color:#fff;border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:11px;box-shadow:0 10px 30px rgba(23,34,48,.35);animation:toastIn .32s cubic-bezier(.2,.8,.3,1) both">\
+      <div style="width:28px;height:28px;border-radius:50%;background:'+(t.color||'#2ea86a')+';display:flex;align-items:center;justify-content:center;flex:none"><i data-lucide="'+(t.icon||'check')+'" width="16" height="16" style="color:#fff"></i></div>\
+      <div style="flex:1"><div style="font-weight:700;font-size:13px;line-height:1.3">'+esc(t.title||'Done')+'</div><div style="font-size:11.5px;color:rgba(255,255,255,.75);margin-top:1px;line-height:1.35">'+esc(t.msg||'')+'</div></div>\
     </div>\
   </div>'; }
 
@@ -1088,6 +1510,7 @@ function render(){
   document.getElementById('cpp-fab').innerHTML = fabHtml(V);
   document.getElementById('cpp-chat').innerHTML = chatHtml(V);
   document.getElementById('cpp-modal').innerHTML = modalHtml(V);
+  document.getElementById('cpp-toast').innerHTML = toastHtml(V);
   refreshIcons();
   bindScroll();
   scrollChat();
